@@ -10,6 +10,17 @@ It is built for people who rely on Zotero every day and have reached the point w
 ---
 ## What's NEW
 
+### As of March 26, 2026: 
+Autotag 4.0.2 now allows you to: 
+- choose what info to be uploaded to LLM
+- include full-text pdf for better tags
+
+Additional features: 
+- Now with updated gemini model list
+- Display error messages with more details to help pinpoint any issue.
+
+### Previous Update
+
 Autotag now supports **multiple large language model providers**, giving you full flexibility based on cost, availability, and privacy needs.
 
 You can now choose between:
