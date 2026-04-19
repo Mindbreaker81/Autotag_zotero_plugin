@@ -3,10 +3,16 @@
 import type { LLMProvider } from "./LLMProvider";
 import {
   getApiKeyForProvider,
+  getBaseUrlForProvider,
+  getCustomModelForProvider,
   getModelForProvider,
 } from "../autotagPrefs";
 
 declare const Zotero: _ZoteroTypes.Zotero;
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
 
 export const DeepSeekProvider: LLMProvider = {
   name: "deepseek",
@@ -17,12 +23,19 @@ export const DeepSeekProvider: LLMProvider = {
       throw new Error("DeepSeek API key not configured");
     }
 
-    const model = getModelForProvider("deepseek").trim();
+    const customModel = getCustomModelForProvider("deepseek").trim();
+    const selectedModel = getModelForProvider("deepseek").trim();
+    const model = customModel || selectedModel;
+
     if (!model) {
       throw new Error(
         "No DeepSeek model selected. Open Autotag settings and choose a model.",
       );
     }
+
+    const customBaseUrl = getBaseUrlForProvider("deepseek").trim();
+    const baseUrl = normalizeBaseUrl(customBaseUrl || "https://api.deepseek.com/v1");
+    const endpoint = `${baseUrl}/chat/completions`;
 
     const body = {
       model,
@@ -30,8 +43,7 @@ export const DeepSeekProvider: LLMProvider = {
       messages: [
         {
           role: "system",
-          content:
-            "You must return ONLY valid JSON and no other text.",
+          content: "You must return ONLY valid JSON and no other text.",
         },
         {
           role: "user",
@@ -40,17 +52,13 @@ export const DeepSeekProvider: LLMProvider = {
       ],
     };
 
-    const response = await Zotero.HTTP.request(
-      "POST",
-      "https://api.deepseek.com/v1/chat/completions",
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + apiKey,
-        },
-        body: JSON.stringify(body),
+    const response = await Zotero.HTTP.request("POST", endpoint, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey,
       },
-    );
+      body: JSON.stringify(body),
+    });
 
     const raw = (response as any).responseText;
     if (!raw) {

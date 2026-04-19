@@ -1,15 +1,18 @@
 <linkset>
   <html:link rel="localization" href="__addonRef__-preferences.ftl" />
 </linkset>
+
 <groupbox
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window });"
 >
   <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
+
   <checkbox
     id="zotero-prefpane-__addonRef__-enable"
     preference="enable"
     data-l10n-id="pref-enable"
   />
+
   <hbox>
     <html:label
       for="zotero-prefpane-__addonRef__-input"
@@ -21,10 +24,76 @@
       preference="input"
     ></html:input>
   </hbox>
+
+  <separator class="thin" />
+
+  <label>
+    <html:h3>OpenAI-compatible overrides</html:h3>
+  </label>
+
+  <hbox align="center">
+    <html:label for="zotero-prefpane-__addonRef__-openai-baseurl">
+      OpenAI API Base URL
+    </html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-openai-baseurl"
+      preference="baseURL.openai"
+      placeholder="https://api.openai.com/v1"
+      style="width: 420px;"
+    ></html:input>
+  </hbox>
+
+  <hbox align="center">
+    <html:label for="zotero-prefpane-__addonRef__-openai-custommodel">
+      OpenAI Custom Model ID
+    </html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-openai-custommodel"
+      preference="customModel.openai"
+      placeholder="gpt-4o-mini"
+      style="width: 420px;"
+    ></html:input>
+  </hbox>
+
+  <separator class="thin" />
+
+  <label>
+    <html:h3>DeepSeek-compatible overrides</html:h3>
+  </label>
+
+  <hbox align="center">
+    <html:label for="zotero-prefpane-__addonRef__-deepseek-baseurl">
+      DeepSeek API Base URL
+    </html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-deepseek-baseurl"
+      preference="baseURL.deepseek"
+      placeholder="https://api.deepseek.com/v1"
+      style="width: 420px;"
+    ></html:input>
+  </hbox>
+
+  <hbox align="center">
+    <html:label for="zotero-prefpane-__addonRef__-deepseek-custommodel">
+      DeepSeek Custom Model ID
+    </html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-deepseek-custommodel"
+      preference="customModel.deepseek"
+      placeholder="deepseek-chat"
+      style="width: 420px;"
+    ></html:input>
+  </hbox>
+
   <hbox class="virtualized-table-container" flex="1" height="300px">
     <html:div id="__addonRef__-table-container" />
   </hbox>
 </groupbox>
+
 <vbox>
   <html:label
     data-l10n-id="pref-help"

@@ -3,10 +3,16 @@
 import type { LLMProvider } from "./LLMProvider";
 import {
   getApiKeyForProvider,
+  getBaseUrlForProvider,
+  getCustomModelForProvider,
   getModelForProvider,
 } from "../autotagPrefs";
 
 declare const Zotero: _ZoteroTypes.Zotero;
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
 
 export const OpenAIProvider: LLMProvider = {
   name: "openai",
@@ -17,12 +23,19 @@ export const OpenAIProvider: LLMProvider = {
       throw new Error("OpenAI API key not configured");
     }
 
-    const model = getModelForProvider("openai").trim();
+    const customModel = getCustomModelForProvider("openai").trim();
+    const selectedModel = getModelForProvider("openai").trim();
+    const model = customModel || selectedModel;
+
     if (!model) {
       throw new Error(
         "No OpenAI model selected. Open Autotag settings and choose a model.",
       );
     }
+
+    const customBaseUrl = getBaseUrlForProvider("openai").trim();
+    const baseUrl = normalizeBaseUrl(customBaseUrl || "https://api.openai.com/v1");
+    const endpoint = `${baseUrl}/chat/completions`;
 
     const body = {
       model,
@@ -40,17 +53,13 @@ export const OpenAIProvider: LLMProvider = {
       ],
     };
 
-    const response = await Zotero.HTTP.request(
-      "POST",
-      "https://api.openai.com/v1/chat/completions",
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + apiKey,
-        },
-        body: JSON.stringify(body),
+    const response = await Zotero.HTTP.request("POST", endpoint, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey,
       },
-    );
+      body: JSON.stringify(body),
+    });
 
     const raw = (response as any).responseText;
     if (!raw) {

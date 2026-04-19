@@ -1,16 +1,8 @@
 // src/modules/autotagPrefs.ts
 
-// Zotero global from the app
 declare const Zotero: _ZoteroTypes.Zotero;
-// ChromeUtils is provided by the Zotero Firefox platform
 declare const ChromeUtils: any;
 
-/**
- * Services access in Zotero 8:
- * - In some Zotero 8 contexts, importing resource://gre/modules/Services.sys.mjs
- *   can FAIL (not just export-shape issues).
- * - Prefer Zotero.Services when available, and only try importing as a fallback.
- */
 let ServicesAny: any = (Zotero as any)?.Services;
 
 if (!ServicesAny) {
@@ -51,6 +43,14 @@ const PREF_MODEL_OPENAI = `${PREF_BRANCH}model.openai`;
 const PREF_MODEL_GEMINI = `${PREF_BRANCH}model.gemini`;
 const PREF_MODEL_DEEPSEEK = `${PREF_BRANCH}model.deepseek`;
 const PREF_MODEL_LOCAL = `${PREF_BRANCH}model.local`;
+
+// Custom base URLs
+const PREF_BASE_URL_OPENAI = `${PREF_BRANCH}baseURL.openai`;
+const PREF_BASE_URL_DEEPSEEK = `${PREF_BRANCH}baseURL.deepseek`;
+
+// Custom model IDs
+const PREF_CUSTOM_MODEL_OPENAI = `${PREF_BRANCH}customModel.openai`;
+const PREF_CUSTOM_MODEL_DEEPSEEK = `${PREF_BRANCH}customModel.deepseek`;
 
 // Seed keywords
 const PREF_SEED_KEYWORDS = `${PREF_BRANCH}seedKeywords`;
@@ -182,6 +182,26 @@ function getModelPref(provider: string): string {
   }
 }
 
+function getBaseUrlPref(provider: string): string {
+  switch (provider) {
+    case "deepseek":
+      return PREF_BASE_URL_DEEPSEEK;
+    case "openai":
+    default:
+      return PREF_BASE_URL_OPENAI;
+  }
+}
+
+function getCustomModelPref(provider: string): string {
+  switch (provider) {
+    case "deepseek":
+      return PREF_CUSTOM_MODEL_DEEPSEEK;
+    case "openai":
+    default:
+      return PREF_CUSTOM_MODEL_OPENAI;
+  }
+}
+
 // =========================
 // API key access
 // =========================
@@ -222,6 +242,52 @@ export function getModelForProvider(provider: string): string {
 export function setModelForProvider(provider: string, model: string): void {
   const prefKey = getModelPref(provider);
   Zotero.Prefs.set(prefKey, model);
+}
+
+// =========================
+// Custom base URL access
+// =========================
+
+export function getBaseUrlForProvider(provider: string): string {
+  if (provider !== "openai" && provider !== "deepseek") return "";
+
+  const prefKey = getBaseUrlPref(provider);
+  try {
+    const raw = Zotero.Prefs.get(prefKey, true);
+    return raw == null ? "" : String(raw);
+  } catch {
+    return "";
+  }
+}
+
+export function setBaseUrlForProvider(provider: string, value: string): void {
+  if (provider !== "openai" && provider !== "deepseek") return;
+
+  const prefKey = getBaseUrlPref(provider);
+  Zotero.Prefs.set(prefKey, value, true);
+}
+
+// =========================
+// Custom model access
+// =========================
+
+export function getCustomModelForProvider(provider: string): string {
+  if (provider !== "openai" && provider !== "deepseek") return "";
+
+  const prefKey = getCustomModelPref(provider);
+  try {
+    const raw = Zotero.Prefs.get(prefKey, true);
+    return raw == null ? "" : String(raw);
+  } catch {
+    return "";
+  }
+}
+
+export function setCustomModelForProvider(provider: string, value: string): void {
+  if (provider !== "openai" && provider !== "deepseek") return;
+
+  const prefKey = getCustomModelPref(provider);
+  Zotero.Prefs.set(prefKey, value, true);
 }
 
 // =========================
@@ -385,7 +451,7 @@ export function getPromptContentOptions(): PromptContentOptions {
 }
 
 // =========================
-// Settings dialog (Services.prompt with window.* fallbacks)
+// Settings dialog helpers
 // =========================
 
 function selectDialog(
@@ -395,14 +461,12 @@ function selectDialog(
   options: string[],
   defaultIndex: number,
 ): number | null {
-  // Preferred: Services.prompt.select
   if (Services?.prompt?.select) {
     const selection: any = { value: defaultIndex };
     const ok = Services.prompt.select(win, title, text, options, selection);
     return ok ? Number(selection.value) : null;
   }
 
-  // Fallback: window.prompt asking for option number
   const list = options.map((o, i) => `${i + 1}) ${o}`).join("\n");
   const raw = (win as any).prompt(
     `${title}\n\n${text}\n\n${list}\n\nEnter choice (1-${options.length}):`,
@@ -459,7 +523,6 @@ function yesNoDialog(
 // =========================
 
 export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
-  // ---------- Provider selection ----------
   const providerLabels = ["OpenAI", "Gemini", "DeepSeek", "Local (Ollama)"];
   const providerValues = ["openai", "gemini", "deepseek", "local"];
 
@@ -477,6 +540,35 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
 
   const provider = providerValues[pickedProviderIndex] || "openai";
   setSelectedProvider(provider);
+
+  // ---------- Optional custom base URL ----------
+  if (provider === "openai" || provider === "deepseek") {
+    const defaultBaseUrl =
+      provider === "openai"
+        ? "https://api.openai.com/v1"
+        : "https://api.deepseek.com/v1";
+
+    const wantsCustomBaseUrl = yesNoDialog(
+      win,
+      "Autotag settings",
+      `Do you want to change the default API Base URL for ${provider}?\n\nDefault:\n${defaultBaseUrl}`,
+      !!getBaseUrlForProvider(provider).trim(),
+    );
+    if (wantsCustomBaseUrl == null) return;
+
+    if (wantsCustomBaseUrl) {
+      const rawBaseUrl = promptDialog(
+        win,
+        "Autotag settings",
+        `Enter the API Base URL for ${provider}:`,
+        getBaseUrlForProvider(provider).trim() || defaultBaseUrl,
+      );
+      if (rawBaseUrl == null) return;
+      setBaseUrlForProvider(provider, rawBaseUrl.trim());
+    } else {
+      setBaseUrlForProvider(provider, "");
+    }
+  }
 
   // ---------- Model selection ----------
   let modelOptions: string[] = [];
@@ -504,6 +596,7 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
   }
 
   let selectedModel = "";
+  let selectedCustomModel = "";
 
   if (provider === "local") {
     const raw = promptDialog(
@@ -515,23 +608,63 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
     if (raw == null) return;
     selectedModel = raw.trim();
   } else {
-    const currentModel = getModelForProvider(provider) || defaultModel;
-    const modelIndex = Math.max(modelOptions.indexOf(currentModel), 0);
+    const supportsCustomModel =
+      provider === "openai" || provider === "deepseek";
+
+    const modelOptionsWithOther = supportsCustomModel
+      ? [...modelOptions, "Other (enter custom model ID)"]
+      : modelOptions;
+
+    const savedCustomModel =
+      supportsCustomModel ? getCustomModelForProvider(provider).trim() : "";
+
+    const currentModel =
+      savedCustomModel || getModelForProvider(provider) || defaultModel;
+
+    let modelIndex = modelOptions.indexOf(currentModel);
+    if (modelIndex < 0 && supportsCustomModel && savedCustomModel) {
+      modelIndex = modelOptionsWithOther.length - 1;
+    }
+    if (modelIndex < 0) {
+      modelIndex = 0;
+    }
 
     const pickedModelIndex = selectDialog(
       win,
       "Autotag settings",
       "Select the model you want to use:",
-      modelOptions,
+      modelOptionsWithOther,
       modelIndex,
     );
     if (pickedModelIndex == null) return;
 
-    selectedModel = modelOptions[pickedModelIndex] || "";
+    if (supportsCustomModel && pickedModelIndex === modelOptionsWithOther.length - 1) {
+      const rawCustom = promptDialog(
+        win,
+        "Autotag settings",
+        `Enter the custom model ID for ${provider}:`,
+        savedCustomModel,
+      );
+      if (rawCustom == null) return;
+
+      selectedCustomModel = rawCustom.trim();
+      if (!selectedCustomModel) {
+        throw new Error("Custom model ID cannot be empty.");
+      }
+
+      selectedModel = defaultModel || modelOptions[0] || "";
+    } else {
+      selectedModel = modelOptionsWithOther[pickedModelIndex] || "";
+      selectedCustomModel = "";
+    }
   }
 
   if (selectedModel) {
     setModelForProvider(provider, selectedModel);
+  }
+
+  if (provider === "openai" || provider === "deepseek") {
+    setCustomModelForProvider(provider, selectedCustomModel);
   }
 
   // ---------- API key ----------
@@ -547,7 +680,6 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
     }
   }
 
-  // ---------- Content selection ----------
   const includeTitle = yesNoDialog(
     win,
     "Autotag settings",
@@ -650,7 +782,6 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
     }
   }
 
-  // ---------- Seed keywords ----------
   const seedsRaw = promptDialog(
     win,
     "Autotag settings",
@@ -661,7 +792,6 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
     setSeedKeywords(seedsRaw.trim());
   }
 
-  // ---------- Final prompt (simple editor) ----------
   const promptRaw = promptDialog(
     win,
     "Autotag settings",
@@ -673,7 +803,6 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
     setFinalPrompt(promptRaw.trim());
   }
 
-  // ---------- Final summary ----------
   const summary = getPromptContentOptions();
   const pdfSummary = summary.includePdfText
     ? summary.pdfTextMode === "full_text"
@@ -681,12 +810,24 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
       : `enabled (${summary.pdfTextCharLimit} chars)`
     : "disabled";
 
+  const baseUrlSummary =
+    provider === "openai" || provider === "deepseek"
+      ? getBaseUrlForProvider(provider).trim() || "(default)"
+      : "(not applicable)";
+
+  const customModelSummary =
+    provider === "openai" || provider === "deepseek"
+      ? getCustomModelForProvider(provider).trim() || "(none)"
+      : "(not applicable)";
+
   confirmDialog(
     win,
     "Autotag settings saved",
     [
       `Provider: ${provider}`,
       `Model: ${selectedModel || "(unchanged)"}`,
+      `Custom API Base URL: ${baseUrlSummary}`,
+      `Custom Model ID: ${customModelSummary}`,
       "",
       "Content sent to LLM:",
       `- title: ${summary.includeTitle ? "yes" : "no"}`,
