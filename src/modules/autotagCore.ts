@@ -237,7 +237,8 @@ async function callLLMForTags(
     if (msg.includes("404") && msg.toLowerCase().includes("not found")) {
       throw new Error(
         "This model is not available anymore according to the provider.\n\n" +
-          "Please select another model in Autotag settings.",
+          "Please select another model in Autotag settings.\n\n" +
+          "Note: If you're using local model, the model you're calling might not be installed. ",
       );
     }
 
