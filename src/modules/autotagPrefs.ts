@@ -606,14 +606,17 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
 
     case "openrouter":
       modelOptions = [
-        "openai/gpt-4o-mini",
+        "anthropic/claude-4.6-sonnet-20260217",
+        "anthropic/claude-4.7-opus-20260416",
         "openai/gpt-4o",
-        "anthropic/claude-3.5-sonnet",
-        "anthropic/claude-3.5-haiku",
-        "google/gemini-pro-1.5",
-        "meta-llama/llama-3.1-70b-instruct",
+        "openai/gpt-4o-mini",
+        "google/gemini-3-flash-preview-20251217",
+        "deepseek/deepseek-v4-flash-20260423",
+        "deepseek/deepseek-v4-pro-20260423",
+        "moonshotai/kimi-k2.6-20260420",
+        "tencent/hy3-preview-20260421",
       ];
-      defaultModel = "openai/gpt-4o-mini";
+      defaultModel = "anthropic/claude-4.6-sonnet-20260217";
       break;
 
     case "local":
