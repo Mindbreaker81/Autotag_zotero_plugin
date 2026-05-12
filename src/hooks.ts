@@ -4,7 +4,167 @@
 // Zotero global from the app
 declare const Zotero: _ZoteroTypes.Zotero;
 
-import { registerAutotagToolsMenu } from "./modules/autotagMenu";
+import { runAutotagForItems } from "./modules/autotagCore";
+import {
+  Services,
+  getSelectedProvider,
+  getApiKeyForProvider,
+  openAutotagSettings,
+  getPromptContentOptions,
+} from "./modules/autotagPrefs";
+import { config } from "../package.json";
+
+type ItemMetadata = {
+  key: string;
+  itemType: string;
+  title: string;
+  abstract: string;
+  publicationTitle: string;
+  date: string;
+  creators: string[];
+  tags: string[];
+  pdfText?: string;
+};
+
+function debug(msg: string) {
+  (Zotero as any).debug?.(msg);
+}
+
+function showError(win: _ZoteroTypes.MainWindow, title: string, e: unknown) {
+  const err = e instanceof Error ? e : new Error(String(e));
+  const message = err.message || String(e);
+  const stack = err.stack || "";
+
+  debug(`Autotag: ${title}: ${message}\n${stack}`);
+
+  try {
+    (Zotero as any).logError?.(err);
+  } catch {
+    // ignore
+  }
+
+  const detail = stack && !stack.includes(message)
+    ? `${message}\n\n${stack}`
+    : message;
+
+  (win as any).alert(`${title}\n\n${detail}`);
+}
+
+function normalizeExtractedText(text: string): string {
+  return String(text || "")
+    .split("\x00").join(" ")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function truncatePdfText(text: string): string {
+  const options = getPromptContentOptions();
+  const cleaned = normalizeExtractedText(text);
+
+  if (!cleaned) return "";
+
+  if (options.pdfTextMode === "full_text") {
+    return cleaned;
+  }
+
+  const limit =
+    Number.isFinite(options.pdfTextCharLimit) && options.pdfTextCharLimit > 0
+      ? Math.floor(options.pdfTextCharLimit)
+      : 4000;
+
+  if (cleaned.length <= limit) return cleaned;
+  return cleaned.slice(0, limit).trim();
+}
+
+async function getExtractedAttachmentTextForItem(item: any): Promise<string> {
+  try {
+    if (item?.isAttachment?.()) {
+      const contentType = String(item.attachmentContentType || "").toLowerCase();
+      if (contentType === "application/pdf" || contentType === "text/html") {
+        const text = await item.attachmentText;
+        return truncatePdfText(String(text || ""));
+      }
+      return "";
+    }
+
+    if (!item?.isRegularItem?.()) {
+      return "";
+    }
+
+    const attachmentIDs = item.getAttachments?.() || [];
+    if (!attachmentIDs.length) return "";
+
+    const attachments = attachmentIDs
+      .map((id: number) => {
+        try {
+          return Zotero.Items.get(id);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    if (!attachments.length) return "";
+
+    const importedPdf = attachments.find((att: any) => {
+      const ct = String(att?.attachmentContentType || "").toLowerCase();
+      return ct === "application/pdf" && !!att?.isImportedAttachment?.();
+    });
+
+    const anyPdf = attachments.find((att: any) => {
+      const ct = String(att?.attachmentContentType || "").toLowerCase();
+      return ct === "application/pdf";
+    });
+
+    const htmlAttachment = attachments.find((att: any) => {
+      const ct = String(att?.attachmentContentType || "").toLowerCase();
+      return ct === "text/html";
+    });
+
+    const chosen = importedPdf || anyPdf || htmlAttachment;
+    if (!chosen) return "";
+
+    try {
+      const text = await chosen.attachmentText;
+      return truncatePdfText(String(text || ""));
+    } catch (e) {
+      debug(`Autotag: failed to read attachment text for item ${item.key}: ${String(e)}`);
+      return "";
+    }
+  } catch (e) {
+    debug(`Autotag: getExtractedAttachmentTextForItem failed for ${item?.key || "[unknown]"}: ${String(e)}`);
+    return "";
+  }
+}
+
+async function getItemMetadata(item: any): Promise<ItemMetadata> {
+  const creators = (item.getCreators?.() || []).map((c: any) => {
+    if (c.lastName && c.firstName) return `${c.lastName}, ${c.firstName}`;
+    return c.name || c.lastName || "[unknown creator]";
+  });
+
+  const tags = (item.getTags?.() || []).map((t: any) => t.tag);
+  const options = getPromptContentOptions();
+
+  let pdfText = "";
+  if (options.includePdfText) {
+    pdfText = await getExtractedAttachmentTextForItem(item);
+  }
+
+  return {
+    key: item.key,
+    itemType: item.itemType,
+    title: item.getField?.("title") || "",
+    abstract: item.getField?.("abstractNote") || "",
+    publicationTitle: item.getField?.("publicationTitle") || "",
+    date: item.getField?.("date") || "",
+    creators,
+    tags,
+    pdfText: pdfText || "",
+  };
+}
 
 /**
  * Inject our CSS into the Zotero main window.
@@ -38,6 +198,97 @@ async function onStartup(): Promise<void> {
     Zotero.uiReadyPromise,
   ]);
 
+  // Register menus using Zotero.MenuManager API (Zotero 8+)
+  try {
+    (Zotero as any).MenuManager.registerMenu({
+      menuType: "menuitem",
+      target: "main/menubar/tools",
+      l10nID: "autotag-settings-menu",
+      onCommand: () => {
+        try {
+          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
+          openAutotagSettings(win);
+        } catch (e) {
+          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
+          showError(win, "Autotag settings failed", e);
+        }
+      },
+      menuID: "autotag-settings-menu",
+      pluginID: config.addonID,
+    });
+
+    (Zotero as any).MenuManager.registerMenu({
+      menuType: "menuitem",
+      target: "main/menubar/tools",
+      l10nID: "autotag-run-menu",
+      onCommand: async () => {
+        try {
+          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
+          const pane =
+            (Zotero as any).getActiveZoteroPane?.() ||
+            (Zotero as any).Pane?.getActive?.();
+
+          if (!pane) {
+            (win as any).alert("Autotag: No active Zotero pane found.");
+            return;
+          }
+
+          const selectedItems = pane.getSelectedItems?.() || [];
+          if (!selectedItems.length) {
+            (win as any).alert("Autotag: No items selected.");
+            return;
+          }
+
+          const provider = getSelectedProvider();
+
+          // Only check API key for non-local providers
+          if (provider !== "local") {
+            const apiKey = getApiKeyForProvider(provider);
+            if (!apiKey) {
+              const ask =
+                Services?.prompt?.confirm?.(
+                  win,
+                  "Autotag",
+                  "No API key is configured for this provider.\n\n" +
+                  "Would you like to open Autotag settings now?",
+                ) ??
+                (win as any).confirm(
+                  "Autotag\n\nNo API key is configured for this provider.\n\n" +
+                  "Would you like to open Autotag settings now?",
+                );
+
+              if (ask) {
+                try {
+                  openAutotagSettings(win);
+                } catch (e) {
+                  showError(win, "Autotag settings failed", e);
+                }
+              }
+              return;
+            }
+          }
+
+          // Build payload asynchronously because PDF extraction can be async
+          const payload: ItemMetadata[] = [];
+          for (const item of selectedItems) {
+            payload.push(await getItemMetadata(item));
+          }
+
+          await runAutotagForItems(payload, win);
+        } catch (e) {
+          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
+          showError(win, "Autotag run failed", e);
+        }
+      },
+      menuID: "autotag-run-menu",
+      pluginID: config.addonID,
+    });
+
+    debug("Autotag: menus registered using Zotero.MenuManager");
+  } catch (e) {
+    debug("Autotag: failed to register menus: " + String(e));
+  }
+
   // Register for all existing main windows
   const wins = Zotero.getMainWindows() as _ZoteroTypes.MainWindow[];
   for (const win of wins) {
@@ -51,8 +302,8 @@ async function onStartup(): Promise<void> {
 async function onMainWindowLoad(
   win: _ZoteroTypes.MainWindow,
 ): Promise<void> {
-  injectAutotagStyles(win);       // 🔑 make sure CSS is loaded
-  registerAutotagToolsMenu(win);  // 🔑 then create the Tools menu items
+  injectAutotagStyles(win);  // Inject CSS into window
+  // Menus are now registered via Zotero.MenuManager in onStartup
 }
 
 /**
