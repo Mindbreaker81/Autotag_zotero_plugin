@@ -12,6 +12,7 @@ import {
   openAutotagSettings,
   getPromptContentOptions,
 } from "./modules/autotagPrefs";
+import { registerAutotagToolsMenu } from "./modules/autotagMenu";
 import { config } from "../package.json";
 
 type ItemMetadata = {
@@ -198,96 +199,9 @@ async function onStartup(): Promise<void> {
     Zotero.uiReadyPromise,
   ]);
 
-  // Register menus using Zotero.MenuManager API (Zotero 8+)
-  try {
-    (Zotero as any).MenuManager.registerMenu({
-      menuType: "menuitem",
-      target: "main/menubar/tools",
-      l10nID: "autotag-settings-menu",
-      onCommand: () => {
-        try {
-          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
-          openAutotagSettings(win);
-        } catch (e) {
-          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
-          showError(win, "Autotag settings failed", e);
-        }
-      },
-      menuID: "autotag-settings-menu",
-      pluginID: config.addonID,
-    });
-
-    (Zotero as any).MenuManager.registerMenu({
-      menuType: "menuitem",
-      target: "main/menubar/tools",
-      l10nID: "autotag-run-menu",
-      onCommand: async () => {
-        try {
-          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
-          const pane =
-            (Zotero as any).getActiveZoteroPane?.() ||
-            (Zotero as any).Pane?.getActive?.();
-
-          if (!pane) {
-            (win as any).alert("Autotag: No active Zotero pane found.");
-            return;
-          }
-
-          const selectedItems = pane.getSelectedItems?.() || [];
-          if (!selectedItems.length) {
-            (win as any).alert("Autotag: No items selected.");
-            return;
-          }
-
-          const provider = getSelectedProvider();
-
-          // Only check API key for non-local providers
-          if (provider !== "local") {
-            const apiKey = getApiKeyForProvider(provider);
-            if (!apiKey) {
-              const ask =
-                Services?.prompt?.confirm?.(
-                  win,
-                  "Autotag",
-                  "No API key is configured for this provider.\n\n" +
-                  "Would you like to open Autotag settings now?",
-                ) ??
-                (win as any).confirm(
-                  "Autotag\n\nNo API key is configured for this provider.\n\n" +
-                  "Would you like to open Autotag settings now?",
-                );
-
-              if (ask) {
-                try {
-                  openAutotagSettings(win);
-                } catch (e) {
-                  showError(win, "Autotag settings failed", e);
-                }
-              }
-              return;
-            }
-          }
-
-          // Build payload asynchronously because PDF extraction can be async
-          const payload: ItemMetadata[] = [];
-          for (const item of selectedItems) {
-            payload.push(await getItemMetadata(item));
-          }
-
-          await runAutotagForItems(payload, win);
-        } catch (e) {
-          const win = Zotero.getMainWindows()[0] as _ZoteroTypes.MainWindow;
-          showError(win, "Autotag run failed", e);
-        }
-      },
-      menuID: "autotag-run-menu",
-      pluginID: config.addonID,
-    });
-
-    debug("Autotag: menus registered using Zotero.MenuManager");
-  } catch (e) {
-    debug("Autotag: failed to register menus: " + String(e));
-  }
+  // Menu registration moved to onMainWindowLoad using manual insertion
+  // (Zotero.MenuManager.registerMenu was unreliable in Zotero 9)
+  debug("Autotag: startup complete, menu registration will happen per window");
 
   // Register for all existing main windows
   const wins = Zotero.getMainWindows() as _ZoteroTypes.MainWindow[];
@@ -303,7 +217,7 @@ async function onMainWindowLoad(
   win: _ZoteroTypes.MainWindow,
 ): Promise<void> {
   injectAutotagStyles(win);  // Inject CSS into window
-  // Menus are now registered via Zotero.MenuManager in onStartup
+  registerAutotagToolsMenu(win);  // Insert menu items into Tools menu
 }
 
 /**

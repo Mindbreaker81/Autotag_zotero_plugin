@@ -849,12 +849,17 @@ export function openAutotagSettings(win: _ZoteroTypes.MainWindow): void {
       ? getCustomModelForProvider(provider).trim() || "(none)"
       : "(not applicable)";
 
+  const actualModel =
+    customModelSummary !== "(none)" && customModelSummary !== "(not applicable)"
+      ? customModelSummary
+      : selectedModel || "(unchanged)";
+
   confirmDialog(
     win,
     "Autotag settings saved",
     [
       `Provider: ${provider}`,
-      `Model: ${selectedModel || "(unchanged)"}`,
+      `Model: ${actualModel}`,
       `Custom API Base URL: ${baseUrlSummary}`,
       `Custom Model ID: ${customModelSummary}`,
       "",
